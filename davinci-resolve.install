@@ -1,0 +1,80 @@
+
+# pre_install() {
+    # From pre_install.sh
+    # uninstall_legacy_bmdPanelDaemon()
+    # {
+    # 	# Uninstall BMD panel daemon
+    # 	SVC_NAME=bmdpaneld
+    # 
+    # 	# Kill the daemon in case it is running
+    # 	killall -9 ${SVC_NAME}
+    # 
+    # 	if [ -f /etc/init.d/${SVC_NAME} ]; then
+    # 		echo "#Uninstalling BMD panel service..."
+    # 		service ${SVC_NAME} stop
+    # 		/sbin/chkconfig --del ${SVC_NAME}
+    # 		rm -f /etc/init.d/${SVC_NAME}
+    # 	fi
+    # }
+    # uninstall_legacy_bmdPanelDaemon
+# }
+
+
+post_install() {
+#     # From post_install.sh install_mime_files()
+#     echo "Updating icon cache"
+#     gtk-update-icon-cache "/usr/share/icons/hicolor" -f 2>&1  >> /dev/null
+#     update-mime-database "/usr/share/mime/" 2>&1  >> /dev/null
+
+    # Does not pacman already handle this by its hooks?
+    # reload the udev rules
+    udevadm control --reload-rules #2>&1
+    udevadm trigger #2>&1
+    
+    ensure_usb_permissions()
+    {
+        # Ensure panel permissions are correctly set for the current session
+        DEVICES=`lsusb | grep "ID $1" | sed -e "s/:/ /g" | awk '{print"/dev/bus/usb/"$2"/"$4}'`
+        for DEV in $DEVICES
+        do
+            echo "Fixing usb permissions for $DEV"
+            chmod a+w $DEV
+        done
+    }
+
+    ensure_usb_permissions "1edb"
+    ensure_usb_permissions "096e"
+
+}
+
+
+#pre_upgrade() {
+    pre_install
+#}
+
+
+#post_upgrade() {
+    # do something here
+#}
+
+
+#pre_remove() {
+    # do something here
+#}
+
+
+post_remove() {
+# # From uninstall.sh
+#     xdg-mime uninstall --novendor "${INSTALL_DIR}/share/resolve.xml"  2>&1  >> /dev/null
+#     xdg-icon-resource uninstall --size 128 DaVinci-Resolve  2>&1  >> /dev/null
+#     xdg-icon-resource uninstall --size 128 DaVinci-ResolveProj  2>&1  >> /dev/null
+# 
+#     echo "Updating icon cache"
+#     gtk-update-icon-cache "${SHARE_DIR}/icons/hicolor" -f 2>&1  >> /dev/null
+#     update-mime-database "${SHARE_DIR}/mime/" 2>&1  >> /dev/null
+# TODO check that all of this will be handled by pacman
+    
+    # Remove GPUCache dir, because it did not came with package. This is done in original uninstaller.
+    rm -rvf "/opt/resolve/GPUCache"
+    
+}
