@@ -1,236 +1,153 @@
 # Maintainer: Alex S. <shantanna_at_hotmail_dot_com>
 # Contributor: Jonathon Fernyhough <jonathon_at_manjaro_dot_org>
-# Contributor: Andrew Shark <ashark#linuxcomp.ru>
 
 # You'll need to download the package archive from
-# https://www.blackmagicdesign.com/products/davinciresolve
+# https://www.blackmagicdesign.com/support/
 
 # Hardware support is limited. Nvidia cards should work fine.
 # If you're running a hybrid setup, try with primusrun/optirun.
 
-pkgname=davinci-resolve
+pkgname=davinci-resolve-beta
 _pkgname=resolve
-pkgver=15.2.2
-pkgrel=2
-pkgdesc='Professional A/V post-production software suite from Blackmagic Design'
-arch=('x86_64')
-url="https://www.blackmagicdesign.com/"
+resolve_app_name=com.blackmagicdesign.resolve
+pkgver=16.0b3
+pkgrel=1
+arch=('any')
+url="https://www.blackmagicdesign.com/support/family/davinci-resolve-and-fusion"
 license=('Commercial')
 depends=('glu' 'gtk2' 'gstreamer' 'libpng12' 'lib32-libpng12' 'ocl-icd' 'openssl-1.0'
-         'opencl-driver' 'qt4' 'qt5-base' 'qt5-svg' 'qt5-webkit'
-         'qt5-webengine' 'qt5-websockets')
-         # TODO check that all of these needed. Also explore `ldd ./installer` and `ldd resolve`.
-makedepends=('xdg-user-dirs' 'unzip' 'libisoburn')
-options=('!strip') # What is this? Do we need it?
-conflicts=('davinci-resolve-beta' 'davinci-resolve-studio' 'davinci-resolve-studio-beta')
+         'opencl-driver' 'qt4' 'qt5-base' 'qt5-svg' 'qt5-webkit' 'qt5-webengine' 'qt5-websockets')
+makedepends=('libarchive' 'xdg-user-dirs')
+options=('!strip')
+provides=('davinci-resolve')
+install=davinci-resolve.install
 
-# source=("DaVinci Resolve.desktop"
-#           "start-resolve")
-# sha256sums=('insert-sum-here'
-#               'insert-sum-here')
+if [ ${pkgname} == "davinci-resolve-studio-beta" ]; then
+# Variables for STUDIO edition
+	pkgdesc='Professional A/V post-production software suite from Blackmagic Design. Studio edition, requires license key or license dongle.'
+	_archive_name=DaVinci_Resolve_Studio_${pkgver}_Linux
+sha256sums=('1b254a8558920924e7208a33d85b529c1b720f4c72b3a6d813bc14b30533cae3')
+	conflicts=('davinci-resolve-beta' 'davinci-resolve' 'davinci-resolve-studio')
+	
+else
+# Variables for FREE edition
+	pkgdesc='Professional A/V post-production software suite from Blackmagic Design'
+	_archive_name=DaVinci_Resolve_${pkgver}_Linux
+sha256sums=('1b254a8558920924e7208a33d85b529c1b720f4c72b3a6d813bc14b30533cae3')
+	conflicts=('davinci-resolve' 'davinci-resolve-studio' 'davinci-resolve-studio-beta')
+	
+fi
 
 
-# Order of the official installation procedure:
-# You download .zip from blackmagicdesign site.
-# Then you unpack it. Two files are inside: pdf and run.
-# In pdf there is a link to dedicated centos iso installer with dr, which we may use for tests.
-# .run file is actually AppImage. It starts AppRun file, which calls "installer" executable.
-# For some reason they made it binary, so we cannot see what else it does. But here is order of its actions:
-# - run scripts/pre_install.sh
-# - copy all files except AppRun and .DirIcon to /opt/resolve
-# - run scripts/post_install.sh
-# So this pkgbuild is remake of these actions.
+_archive=${_archive_name}.zip
+_installer_binary=${_archive_name}.run
 
-prepare() {
-    _archive="DaVinci_Resolve_${pkgver}_Linux.zip"
-    _archive_sha256sum='4330673cbe62f1ce2292d0357e20503233124bbb5a1b7752ce83b4befcf29497'
-    
-    DOWNLOADS_DIR=`xdg-user-dir DOWNLOAD`
-    if [ ! -f ${srcdir}/${_archive} ]; then
-        if [ -f $DOWNLOADS_DIR/${_archive} ]; then
-            ln -sfn $DOWNLOADS_DIR/${_archive} ${srcdir}
-        else
-            msg2 "The package archive can be downloaded here: https://www.blackmagicdesign.com/products/davinciresolve/"
-            msg2 "Please remember to put a downloaded package ${_archive} into the build directory or $DOWNLOADS_DIR"
-            exit 1
-        fi
-    fi
+# Trying to make the user's life easier ;o)
+msg2 "Trying to fetch the archive file if available..."
+DOWNLOADS_DIR=`xdg-user-dir DOWNLOAD`
 
-    # check integrity
-    if ! echo "${_archive_sha256sum} ${srcdir}/${_archive}" | sha256sum -c --quiet; then
-        echo "Invalid checksum for ${_archive}"
-        exit 1
-    fi
-    
-    # extract package to srcdir
-    unzip -o ${srcdir}/${_archive}
-    
-    msg2 "Extracting from bundle..."
-    xorriso -osirrox on -indev DaVinci_Resolve_${pkgver}_Linux.run -extract / "${srcdir}/unpacked"
+if [ ! -f ${PWD}/${_archive} ]; then
+	if [ -f $DOWNLOADS_DIR/${_archive} ]; then
+		ln -sfn $DOWNLOADS_DIR/${_archive} ${PWD}
+	else
+		msg2 ""
+		msg2 "The package can be downloaded here: https://www.blackmagicdesign.com/support/family/davinci-resolve-and-fusion"
+		msg2 "Please remember to put a downloaded package ${_archive}into the build directory ${PWD} or $DOWNLOADS_DIR"
+		msg2 ""
+	fi
+fi
+
+source=("local://${_archive}")
+
+
+prepare()
+{
+	# Remove udev rules (The official installer does not remove these files. This leads to the conflict "exists in the file system".)
+	confiles=$(find /usr/lib/udev/rules.d -name 75-davincipanel.rules -o -name 75-sdx.rules 2> /dev/null | awk -F/ '{print $NF}'
+               find /opt/resolve/configs -name log-conf.xml -o -name config.dat 2> /dev/null | awk -F/ '{print $NF}'
+               )
+	if [ "${confiles}" ]; then
+		msg2 "The file(s) $(echo ${confiles} | xargs | sed 's/ /, /g') already exist in your filesystem."
+		msg2 "This can lead to a conflict and the installation will fail."
+		msg2 "Please restart the installation with the --overwrite option."
+	fi
 }
 
-package() {
+package()
+{
+	msg2 "Creating missing folders..."
+	mkdir -p -m 0775 "${pkgdir}/opt/${_pkgname}/"{configs,DolbyVision,easyDCP,Fairlight,GPUCache,logs,Media,"Resolve Disk Database",.crashreport,.license,.LUT}
+	mkdir -p "${pkgdir}/usr/share/"{applications,desktop-directories,icons/hicolor,mime/packages}
+#	mkdir -p "${pkgdir}/tmp/${_pkgname}/"{logs,GPUCache}
+	mkdir -p "${pkgdir}/usr/lib/udev/rules.d"
+	mkdir -p "${pkgdir}/etc/xdg/menus"
 
-# pre_install.sh reimplementation start
-    INSTALL_DIR="${pkgdir}/opt/resolve"
-    USER_UID=0
-    USER_HOME="${pkgdir}/root"
+	msg2 "Extracting from bundle..."
+	msg "Please wait, this take a while..."
+	cd "${srcdir}" || exit
+	bsdtar x -f ${_installer_binary} -C "${pkgdir}/opt/${_pkgname}"
 
-    mkdir -m 0775 -p "$INSTALL_DIR"
-    chown $USER_UID "$INSTALL_DIR" -R
-    # Installing Resolve as root may cause issues with file permissions when running Resolve as a non-root user. # from pdf manual. Check for correctness.
-# pre_install.sh reimplementation end
+	msg2 "Add lib symlinks..."
+	cd "${pkgdir}/opt/${_pkgname}/" || exit
+	ln -s /usr/lib/libcrypto.so.1.0.0 libs/libcrypto.so.10
+	ln -s /usr/lib/libssl.so.1.0.0 libs/libssl.so.10
 
-# ./installer reimplementation start
-    cp -rpT ${srcdir}/unpacked "${pkgdir}/opt/resolve"
-    rm ${pkgdir}/opt/resolve/{AppRun,.DirIcon}
-    rm ${pkgdir}/opt/resolve/graphics/watermark.png # clutter used by gui installer
-# ./installer reimplementation end
+	msg2 "Install launchers and configs..."
+	cd "${pkgdir}/opt/${_pkgname}/" || exit
+	install -Dm666 share/default-config.dat "${pkgdir}/opt/${_pkgname}/configs/config.dat"
+	install -Dm666 share/log-conf.xml "${pkgdir}/opt/${_pkgname}/configs/log-conf.xml"
+	install -Dm666 share/default_cm_config.bin "${pkgdir}/opt/${_pkgname}/DolbyVision/config.bin"
+	install -Dm644 share/DaVinciResolve.desktop "${pkgdir}/usr/share/applications/${resolve_app_name}.desktop"
+	install -Dm644 share/DaVinciResolvePanelSetup.desktop "${pkgdir}/usr/share/applications/${resolve_app_name}-Panels.desktop"
+	install -Dm644 share/DaVinciResolveInstaller.desktop "${pkgdir}/usr/share/applications/${resolve_app_name}-Installer.desktop"
+	install -Dm644 share/DaVinciResolveCaptureLogs.desktop "${pkgdir}/usr/share/applications/${resolve_app_name}-CaptureLogs.desktop"
+	install -Dm644 share/DaVinciResolve.directory "${pkgdir}/usr/share/desktop-directories/${resolve_app_name}.directory"
+	install -Dm644 share/DaVinciResolve.menu "${pkgdir}/etc/xdg/menus/${resolve_app_name}.menu"
 
-# post_install.sh reimplementation start
-    #COMMON_DATA_DIR=/var/davinci/resolve # never used
-    RESOLVE_APP_NAME=com.blackmagicdesign.resolve
-#     DBUS_SERVICE_DIR=/usr/share/dbus-1/services # never used
-    
-    FILES=(
-            "${pkgdir}/opt/resolve/share/DaVinciResolve.desktop"
-            "${pkgdir}/opt/resolve/share/DaVinciResolveInstaller.desktop"  
-            "${pkgdir}/opt/resolve/share/DaVinciResolveCaptureLogs.desktop"
-            "${pkgdir}/opt/resolve/share/DaVinciResolvePanelSetup.desktop"
-            "${pkgdir}/opt/resolve/share/DaVinciResolve.directory"
-            "${pkgdir}/opt/resolve/share/DaVinciResolve.menu"
-           )
-    ABSOLUTE_INSTALL_DIR="/opt/resolve"
-    for file in "${FILES[@]}"; do
-        sed -i -e "s:RESOLVE_INSTALL_LOCATION:${ABSOLUTE_INSTALL_DIR}:g" "$file" 
-    done
-    
-    mkdir -p "${pkgdir}/usr/share/applications/"
-    mkdir -p "${pkgdir}/usr/share/desktop-directories/"
-    mkdir -p "${pkgdir}/etc/xdg/menus/applications-merged"
-    
-    mv ${pkgdir}/opt/resolve/share/DaVinciResolve.desktop ${pkgdir}/usr/share/applications/${RESOLVE_APP_NAME}.desktop
-    rm ${pkgdir}/opt/resolve/share/DaVinciResolveInstaller.desktop
-    rm ${pkgdir}/opt/resolve/graphics/DV_Uninstall.png
-#   remove from /etc/xdg... <Filename>com.blackmagicdesign.resolve-Installer.desktop</Filename> # Do we even need that file?
-    mv ${pkgdir}/opt/resolve/share/DaVinciResolveCaptureLogs.desktop ${pkgdir}/usr/share/applications/${RESOLVE_APP_NAME}-CaptureLogs.desktop
-    mv ${pkgdir}/opt/resolve/share/DaVinciResolvePanelSetup.desktop ${pkgdir}/usr/share/applications/${RESOLVE_APP_NAME}-Panels.desktop
-    mv ${pkgdir}/opt/resolve/share/DaVinciResolve.directory ${pkgdir}/usr/share/desktop-directories/${RESOLVE_APP_NAME}.directory
-    mv ${pkgdir}/opt/resolve/share/DaVinciResolve.menu ${pkgdir}/etc/xdg/menus/applications-merged/${RESOLVE_APP_NAME}.menu
-    
-    echo "Installing Application icons"
-    mkdir -p ${pkgdir}/usr/share/icons/hicolor/128x128
-    mkdir -p ${pkgdir}/usr/share/mime/packages
-    XDG_DATA_DIRS="${pkgdir}/usr/share"
-    xdg-icon-resource install --size 128 "${INSTALL_DIR}/graphics/DV_Resolve.png" DaVinci-Resolve
-    xdg-icon-resource install --size 128 "${INSTALL_DIR}/graphics/DV_ResolveProj.png" DaVinci-ResolveProj
+	for _file in $(find ${pkgdir}/usr/share ${pkgdir}/etc -type f -name *.desktop -o -name *.directory -o -name *.menu | xargs)
+	do
+		sed -i "s|RESOLVE_INSTALL_LOCATION|/opt/${_pkgname}|g" $_file
+	done
 
-    xdg-icon-resource install --size 128 --context mimetypes "${INSTALL_DIR}/graphics/DV_ResolveProj.png" application-x-resolveproj
-#     xdg-mime install --novendor "${INSTALL_DIR}/share/resolve.xml" # not needed, handled by pacman
-    cp "${INSTALL_DIR}/share/resolve.xml" ${pkgdir}/usr/share/mime/packages
-    
-    
-    echo "Installing udev rules"
-    mkdir -p ${pkgdir}/usr/lib/udev/rules.d/
-    echo 'SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="096e", MODE="0666"' > ${pkgdir}/usr/lib/udev/rules.d/75-davincipanel.rules
-    echo 'SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="1edb", MODE="0666"' > ${pkgdir}/usr/lib/udev/rules.d/75-sdx.rules
+	# This will help adding the app to favorites and prevent glitches on many desktops.
+	echo "StartupWMClass=resolve" >> "${pkgdir}/usr/share/applications/${resolve_app_name}.desktop"
 
-    
-    echo "Setting up dvpanels"
-    PANEL_DRIVER_DIR=${pkgdir}/usr/lib
-    mkdir ${pkgdir}/usr/lib || :
-    tar -xvf "${INSTALL_DIR}/share/panels/dvpanel-framework-linux-x86_64.tgz" libDaVinciPanelAPI.so # I have not used a lib folder from archive
-    mv libDaVinciPanelAPI.so "${PANEL_DRIVER_DIR}"
-    rm "${INSTALL_DIR}/share/panels/dvpanel-framework-linux-x86_64.tgz"
-    
-    # From original:
-    # # We install the default app associations here, because xdg-mime is buggy in centos6
-    # install_default_application ${RESOLVE_APP_NAME}.desktop application/x-resolveproj
-    # # We install the default application system-wide. Per user default-app preferences are buggy for Centos6
-    # install_default_application()
-    # {
-    # $1 is .desktop
-    # $2 is mime/type
-    # DEFAULT_MIME_FILE="/usr/share/applications/defaults.list"
-    #     grep -v "$2=" $DEFAULT_MIME_FILE > ${DEFAULT_MIME_FILE}.new 2> /dev/null
-    #     if ! grep "[Default Applications]" ${DEFAULT_MIME_FILE}.new > /dev/null; then
-    #     echo "[Default Applications]" >> ${DEFAULT_MIME_FILE}.new
-    #     fi
-    #     echo $2=$1 >> ${DEFAULT_MIME_FILE}.new
-    #     mv ${DEFAULT_MIME_FILE}.new $DEFAULT_MIME_FILE
-    # }
-    # Here I repeat this, but then package owns this file, which is not correct. Do we even need it?
-    echo "[Default Applications]" > "${pkgdir}/usr/share/applications/defaults.list"
-    echo "application/x-resolveproj=com.blackmagicdesign.resolve.desktop" >> "${pkgdir}/usr/share/applications/defaults.list"
-    # XDG_DATA_DIRS="${pkgdir}/usr/share" xdg-desktop-menu install --noupdate --novendor misc/tcharmap.desktop # this is from tcharmap-git package
-    
-    
-    LIST_OF_USER_FILES=(
-        "configs"
-        "easyDCP"
-        "logs"
-        "Developer"
-        "DolbyVision"
-        "LUT"
-        ".LUT"
-        ".license"
-        ".crashreport"
-        "Resolve Disk Database"
-        "Fairlight"
-        "Media"
-        )
+	msg2 "Creating and installing udev rules..."
+	echo 'SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="096e", MODE="0666"' > "${pkgdir}/usr/lib/udev/rules.d/75-davincipanel.rules"
+	echo 'SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="1edb", MODE="0666"' > "${pkgdir}/usr/lib/udev/rules.d/75-sdx.rules"
+	chmod 644 "${pkgdir}/usr/lib/udev/rules.d/"{75-davincipanel.rules,75-sdx.rules}
 
-    for file in "${LIST_OF_USER_FILES[@]}"; do
-        mkdir -p -m 0775 "$INSTALL_DIR/$file"
-        chown $USER_UID "$INSTALL_DIR/$file"
-    done
+#	Not sure we need it
+#	msg2 "Any final tweaks..."
+#	ln -s "/tmp/${_pkgname}/logs" "${pkgdir}/opt/${_pkgname}/logs"
+#	ln -s "/tmp/${_pkgname}/GPUCache" "${pkgdir}/opt/${_pkgname}/GPUCache"
 
-    backup=( opt/resolve/configs/config.dat
-             opt/resolve/configs/log-conf.xml
-             opt/resolve/DolbyVision/config.bin )
-    mv "${INSTALL_DIR}/share/default-config-linux.dat" "${INSTALL_DIR}/configs/config.dat"
-    mv "${INSTALL_DIR}/share/log-conf.xml" "${INSTALL_DIR}/configs/log-conf.xml"
-    mv "${INSTALL_DIR}/share/default_cm_config.bin" "${INSTALL_DIR}/DolbyVision/config.bin"
+	msg2 "Installing Application icons..."
+	# Obviously not working without root rights.
+#	XDG_DATA_DIRS="${pkgdir}/usr/share/icons/hicolor" xdg-icon-resource install --size 64 "${pkgdir}/opt/${_pkgname}/graphics/DV_Resolve.png" DaVinci-Resolve 2>&1 >> /dev/null
+#	XDG_DATA_DIRS="${pkgdir}/usr/share/icons/hicolor" xdg-icon-resource install --size 64 "${pkgdir}/opt/${_pkgname}/graphics/DV_ResolveProj.png" DaVinci-ResolveProj 2>&1 >> /dev/null
+#	XDG_DATA_DIRS="${pkgdir}/usr/share/icons/hicolor" xdg-icon-resource install --size 64 --context mimetypes "${pkgdir}/opt/${_pkgname}/graphics/DV_ResolveProj.png" application-x-resolveproj 2>&1  >> /dev/null
+#	XDG_DATA_DIRS="${pkgdir}/usr/share/mime/packages" xdg-mime install --novendor "${pkgdir}/opt/${_pkgname}/share/resolve.xml" 2>&1  >> /dev/null
+	install -D -m644 graphics/DV_Resolve.png "${pkgdir}/usr/share/icons/hicolor/64x64/apps/DV_Resolve.png"
+	install -D -m644 graphics/DV_ResolveProj.png "${pkgdir}/usr/share/icons/hicolor/64x64/apps/DV_ResolveProj.png"
 
-    # Can we somehow handle user permissions correctly for these files?
-    
-# post_install.sh reimplementation end
+	install -D -m644 share/resolve.xml "${pkgdir}/usr/share/mime/packages/resolve.xml"
+	
+	msg2 "Setting the right permissions..."
 
-    
-# export BMD_PLUGIN_PATH=$CURRENT_DIR/libs/plugins # from AppRun, used by ./installer. Do not know its effect.
+	if [ ! "$(logname 2>&1 >/dev/null)" ]; then
+		_user=$(logname)
+		_group=$(id -g -n ${_user})
+	else
+		_user=root
+		_group=root
+	fi
 
-# Do we still need this?
-# msg2 "Creating launchers..."
-# cd "${srcdir}" || exit
-# cat > "${srcdir}/DaVinci Resolve.desktop" << EOF
-# #!/usr/bin/env xdg-open
-# [Desktop Entry]
-# Type=Application
-# Name=DaVinci Resolve
-# Comment=Professional non-linear editing
-# Exec=/opt/${_pkgname}/bin/start-resolve
-# Icon=/opt/${_pkgname}/rsf/DV_Resolve.png
-# Terminal=false
-# Categories=Multimedia;AudioVideo;Application;
-# EOF
-# install -Dm644 DaVinci\ Resolve.desktop "${pkgdir}/usr/share/applications/DaVinci Resolve.desktop"
-# 
-# cat > "${srcdir}/start-resolve" << EOF
-# #!/bin/sh
-# mkdir -p /tmp/${_pkgname}/{logs,GPUCache}
-# cd /opt/${_pkgname}
-# exec bin/resolve "\$@"
-# EOF
-# install -Dm755 start-resolve "${pkgdir}/opt/${_pkgname}/bin/start-resolve"
-# 
-# msg2 "Making sure file ownership is 'correct'..."
-# chown -R root:root "${pkgdir}/opt"
-# chmod 0777 "${pkgdir}/opt/${_pkgname}/configs"
-# chmod 0777 "${pkgdir}/opt/${_pkgname}/Media"
-# 
-# msg2 "Any final tweaks..."
-# ln -s "/tmp/${_pkgname}/logs" "${pkgdir}/opt/${_pkgname}/logs"
-# ln -s "/tmp/${_pkgname}/GPUCache" "${pkgdir}/opt/${_pkgname}/GPUCache"
-# 
-    msg2 "Done!"
+	chown -R ${_user}:${_group} "${pkgdir}/opt/${_pkgname}/"{*,.*}
+	chown -R ${_user}:root "${pkgdir}/opt/${_pkgname}/"{configs,DolbyVision,easyDCP,Fairlight,logs,Media,'Resolve Disk Database',.crashreport,.license,.LUT}
+
+	msg2 "Done!"
 }
+
+# vim: fileencoding=utf-8 sts=4 sw=4 noet
+
